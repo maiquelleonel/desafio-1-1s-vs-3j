@@ -1,23 +1,26 @@
+import glob
+import json
+import os
+import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
-from fastapi import FastAPI, UploadFile
-from typing_extensions import TypedDict
-from fastapi.responses import JSONResponse
-from jsonschema import validate
 from datetime import datetime, timezone
+from typing import AsyncIterator
+
+import pandas as pd
+from fastapi import FastAPI, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.decorator import cache
-import pandas as pd
-import json
-import time
-import os
-import glob
+from jsonschema import validate
+from typing_extensions import TypedDict
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     FastAPICache.init(InMemoryBackend())
     yield
+
 
 class Login(TypedDict):
     date: str
@@ -49,24 +52,24 @@ async def save_users(file: UploadFile | None = None) -> JSONResponse:
     if file:
         os.system("rm -rf db/*")
         content = await file.read()
-        with open(f"db/{file.filename}", "wb") as f: 
+        with open(f"db/{file.filename}", "wb") as f:
             f.write(content)
-        
+
         df = pd.read_json(f"db/{file.filename}")
         return {"filename": file.filename, "user_count": df.shape[0]}
     else:
         return {"message": "ooops! Please upload a file"}
 
+
 @cache(namespace="app", expire=20)
-async def get_superusers(page:int, limit: int, *args, **kwargs) -> dict:
+async def get_superusers(page: int, limit: int, *args, **kwargs) -> dict:
     offset = ((page - 1) * limit) if page > 1 else 0
     json_file = glob.glob("db/*.json")[0]
     df = pd.read_json(json_file)
-    superusers = df[(df["score"] >= 900) & (df["active"] == True)][offset:(offset+limit)]  # noqa
+    superusers = df[(df["score"] >= 900) & (df["active"] == True)][offset : (offset + limit)]  # noqa
     if "fields" in kwargs:
         superusers = superusers[kwargs.get("fields")]
     return superusers.to_dict(orient="records")
-    
 
 
 @app.get("/superusers")
@@ -80,7 +83,7 @@ async def superusers(limit: int = 50, page: int = 1) -> JSONResponse:
         data=response,
         page=page,
         offset=((page - 1) * limit) if page > 1 else 00,
-        total=len(response)
+        total=len(response),
     )
 
 
@@ -91,9 +94,7 @@ async def top_countries() -> JSONResponse:
     df = pd.read_json(json_file)
     superusers = df[(df["score"] >= 900) & (df["active"] == True)]  # noqa
     response = (
-        superusers.groupby("country", as_index=False)
-        .count()
-        .sort_values("id", ascending=False)[["country", "id"]][:5]
+        superusers.groupby("country", as_index=False).count().sort_values("id", ascending=False)[["country", "id"]][:5]
     )
     response.rename(columns={"id": "total"}, inplace=True)
     process_time = time.perf_counter() - start_time
@@ -134,9 +135,7 @@ async def teams_insights() -> JSONResponse:
         actives=("active", "sum"),
     )
 
-    result["active_percentage"] = round(
-        (result["actives"] / result["members"]) * 100, 2
-    )
+    result["active_percentage"] = round((result["actives"] / result["members"]) * 100, 2)
 
     result.drop(columns=["actives"], inplace=True)
 
@@ -168,17 +167,15 @@ async def total_logins(min: int | None = None) -> JSONResponse:
             max_level=2,
         )
 
-    logins = pd.DataFrame.from_records(
-        [obj for r in df2["logs"] for obj in r], columns=["date", "action"]
-    )
+    logins = pd.DataFrame.from_records([obj for r in df2["logs"] for obj in r], columns=["date", "action"])
 
     response = logins.groupby("date", as_index=False).agg(
         total=("action", lambda x: sum(x == "login")),
     )[["date", "total"]]
-    
+
     if min is not None:
         response = response[response["total"] >= min]
-    
+
     process_time = time.perf_counter() - start_time
 
     return dict(
